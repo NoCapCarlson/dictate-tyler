@@ -4,6 +4,20 @@ All notable changes to Dictate are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 semantic versioning.
 
+## [1.9.0] — 2026-08-31
+### Changed
+- English-optimized recognition models (`tiny.en` / `base.en`) are now the
+  defaults, with automatic fallback to multilingual models for other
+  languages.
+- Recognition now uses all available CPU threads (previously four).
+- Live pass tuned for lower latency: faster pass cadence, snappier
+  voice-activity segmentation, and vocabulary biasing moved exclusively to
+  the finishing pass.
+- Words with sufficient trailing context (2.5 s) commit immediately
+  instead of waiting for a second agreeing pass, reducing tail latency
+  during continuous speech.
+- Finishing pass hardened against repetition degeneration on long takes.
+
 ## [1.8.0] — 2026-08-31
 ### Fixed
 - Live insertion could stall partway through longer takes when the

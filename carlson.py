@@ -6,7 +6,7 @@ Hold 5 for one second, speak, release: polished text is pasted at your
 cursor. A quick tap of 5 still types a 5. Esc while recording cancels.
 Local Whisper only - no cloud, no API keys. See META_PROMPT.md.
 """
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 import argparse
 import ctypes
@@ -21,6 +21,9 @@ from datetime import datetime
 
 # Law L6: UTF-8 before anything prints a glyph on a cp1252 console.
 os.environ.setdefault("PYTHONUTF8", "1")
+# HF model downloads need symlinks Windows won't grant unelevated
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8", errors="replace")
@@ -694,7 +697,8 @@ class Carlson:
             t0 = time.monotonic()
             segs, _info = self.model_final.transcribe(
                 audio, language=self.args.language, beam_size=5,
-                vad_filter=True, initial_prompt=self.args.prompt)
+                vad_filter=True, initial_prompt=self.args.prompt,
+                condition_on_previous_text=False)
             raw = " ".join(s.text.strip() for s in segs).strip()
             text = polish(raw, self.args.multiline)
             took = time.monotonic() - t0
@@ -738,11 +742,14 @@ class Carlson:
                     off = self.live_offset
                     win = audio[int(off * SR):]
                     wdur = len(win) / SR
-                    if wdur - self.live_done >= 0.5 and wdur >= 0.7:
+                    if wdur - self.live_done >= 0.4 and wdur >= 0.6:
+                        # no initial_prompt here: it re-encodes on every
+                        # pass and costs real latency; the final pass owns
+                        # accuracy and keeps the vocabulary bias
                         segs, _ = self.model_live.transcribe(
                             win, language=self.args.language, beam_size=1,
                             vad_filter=True, condition_on_previous_text=False,
-                            initial_prompt=self.args.prompt)
+                            vad_parameters={"min_silence_duration_ms": 300})
                         words, seg_ends, cum = [], [], 0
                         for sg in segs:
                             sw = [w for w in sg.text.split()
@@ -753,6 +760,16 @@ class Carlson:
                         if self.state == RECORDING and ep == self.take_epoch:
                             stable = stable_words(self.live_prev, words)
                             self.live_prev = words
+                            # age-based commits: words whose audio ended
+                            # more than 2.5s ago won't change - commit them
+                            # without waiting for a second agreeing pass
+                            aged = 0
+                            for cum_w, end in seg_ends:
+                                if end <= wdur - 2.5:
+                                    aged = cum_w
+                                else:
+                                    break
+                            stable = words[:max(len(stable), aged)]
                             done = self.live_window_words
                             n = len(done)
                             aligned = (len(stable) >= n
@@ -953,21 +970,27 @@ class Carlson:
             return 1
 
         errs = []
+        threads = os.cpu_count() or 4
 
         def load(attr, name):
             try:
                 setattr(self, attr,
-                        WhisperModel(name, device="cpu", compute_type="int8"))
+                        WhisperModel(name, device="cpu", compute_type="int8",
+                                     cpu_threads=threads))
             except Exception as e:
                 errs.append(f"{name}: {e}")
                 log_exc(f"load {name}")
 
-        with c.status(f"[magenta]warming up whisper ({self.args.live_model} "
-                      f"+ {self.args.model}), mic: {dev}..."):
+        live_name, final_name = self.args.live_model, self.args.model
+        if self.args.language != "en":
+            live_name = live_name.removesuffix(".en")
+            final_name = final_name.removesuffix(".en")
+        with c.status(f"[magenta]warming up whisper ({live_name} "
+                      f"+ {final_name}, {threads} threads), mic: {dev}..."):
             t1 = threading.Thread(target=load,
-                                  args=("model_live", self.args.live_model))
+                                  args=("model_live", live_name))
             t2 = threading.Thread(target=load,
-                                  args=("model_final", self.args.model))
+                                  args=("model_final", final_name))
             t1.start()
             t2.start()
             t1.join()
@@ -1135,10 +1158,11 @@ def parse_args():
                    help="key to hold: a single letter/digit or 'space' "
                         "(default: space)")
     p.add_argument("--hold-seconds", type=float, default=1.0)
-    p.add_argument("--model", default="base",
-                   help="final-pass Whisper model (default: base)")
-    p.add_argument("--live-model", default="tiny",
-                   help="live-preview Whisper model (default: tiny)")
+    p.add_argument("--model", default="base.en",
+                   help="final-pass Whisper model (default: base.en; the "
+                        ".en suffix is dropped for non-English languages)")
+    p.add_argument("--live-model", default="tiny.en",
+                   help="live-preview Whisper model (default: tiny.en)")
     p.add_argument("--language", default="en")
     p.add_argument("--prompt", default=DEFAULT_PROMPT,
                    help="vocabulary hint fed to Whisper")

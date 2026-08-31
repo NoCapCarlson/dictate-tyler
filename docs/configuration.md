@@ -9,8 +9,8 @@ or edit the scheduled task's arguments.
 |---|---|---|
 | `--hold-key` | `space` | Trigger key: `space` or a single letter/digit |
 | `--hold-seconds` | `1.0` | Hold duration before capture engages |
-| `--model` | `base` | Finishing model (`small` = slower, more accurate) |
-| `--live-model` | `tiny` | Streaming model for live insertion |
+| `--model` | `base.en` | Finishing model (`small.en` = slower, more accurate) |
+| `--live-model` | `tiny.en` | Streaming model for live insertion |
 | `--language` | `en` | Recognition language |
 | `--prompt` | developer vocabulary | Domain bias fed to the recognizer |
 | `--multiline` | off | Preserve spoken newlines (default flattens for shell safety) |
