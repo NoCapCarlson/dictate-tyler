@@ -6,7 +6,7 @@ Hold 5 for one second, speak, release: polished text is pasted at your
 cursor. A quick tap of 5 still types a 5. Esc while recording cancels.
 Local Whisper only - no cloud, no API keys. See META_PROMPT.md.
 """
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 import argparse
 import ctypes
@@ -83,8 +83,8 @@ def key_is_down(vk):
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
-def modifier_held():
-    return any(key_is_down(v) for v in MODIFIER_VKS)
+def modifier_held(vks=MODIFIER_VKS):
+    return any(key_is_down(v) for v in vks)
 
 
 # ---------------------------------------------------------------------------
@@ -486,12 +486,25 @@ class Carlson:
     def __init__(self, args):
         self.args = args
         name = args.hold_key.strip().lower()
-        if name in ("space", " "):
-            self.hold_char, self.vk, self.key_name = " ", 0x20, "SPACE"
+        self.passive = False            # alt mode: no suppression pre-trigger
+        if name == "alt":
+            # Alt is a modifier: combos (Alt+Tab, Alt+F4...) must keep
+            # working, so nothing is suppressed until the hold triggers.
+            self.hold_char = None
+            self.trigger_vks = (0xA4, 0xA5)          # left / right Alt
+            self.key_name = "ALT"
+            self.passive = True
+            self.guard_vks = (0x10, 0x11, 0x5B, 0x5C)   # shift ctrl win
+        elif name in ("space", " "):
+            self.hold_char = " "
+            self.trigger_vks = (0x20,)
+            self.key_name = "SPACE"
+            self.guard_vks = MODIFIER_VKS
         else:
             self.hold_char = name
-            self.vk = ord(name.upper())
+            self.trigger_vks = (ord(name.upper()),)
             self.key_name = name.upper()
+            self.guard_vks = MODIFIER_VKS
         self.hold_seconds = args.hold_seconds
         self.max_hold = args.max_hold
 
@@ -569,16 +582,18 @@ class Carlson:
         if data.flags & LLKHF_INJECTED:
             return                                   # Law L8
         vk = data.vkCode
-        if vk == self.vk:
+        if vk in self.trigger_vks:
             if msg in (WM_KEYDOWN, WM_SYSKEYDOWN):
                 self.hook_down = True
                 if self.suppressing:
                     self.listener.suppress_event()   # swallow auto-repeats
-                elif self.state == READY and not modifier_held():
+                elif (self.state == READY
+                        and not modifier_held(self.guard_vks)):
                     if self.press_time is None:
                         self.press_time = time.monotonic()
-                    self.suppressing = True
-                    self.listener.suppress_event()   # must be the last line
+                    if not self.passive:
+                        self.suppressing = True
+                        self.listener.suppress_event()   # last line
             else:
                 self.hook_down = False
                 if self.suppressing:
@@ -587,6 +602,12 @@ class Carlson:
                 and msg in (WM_KEYDOWN, WM_SYSKEYDOWN)):
             self.cancel_requested = True             # Law L10
             self.listener.suppress_event()
+        elif (self.passive and self.press_time is not None
+                and self.state == READY
+                and msg in (WM_KEYDOWN, WM_SYSKEYDOWN)):
+            # another key while Alt is pending: it's a shortcut
+            # (Alt+Tab, Alt+F4...) - stand down, let it work natively
+            self.press_time = None
 
     # --- watchdog: the only writer of state transitions (Laws L1, L2, L9) ---
     def watch(self):
@@ -605,6 +626,10 @@ class Carlson:
                         self.finish_recording()
                     elif now - self.record_start > self.max_hold:
                         self.finish_recording(note="max hold reached")
+                elif (self.passive and self.state == READY and down
+                        and self.press_time is not None
+                        and now - self.press_time >= self.hold_seconds):
+                    self.begin_passive_hold()
                 elif self.suppressing:
                     pt = self.press_time
                     if not down:
@@ -636,10 +661,30 @@ class Carlson:
         self.suppressing = False
 
     def inject_tap(self):
+        if not self.hold_char:
+            return                       # alt taps behave natively
         try:
             self.kb.type(self.hold_char)
         except Exception:
             log_exc("inject_tap")
+
+    def begin_passive_hold(self):
+        """Alt hold reached the threshold: take ownership of the key.
+        Suppress its further events, then hand the system a clean
+        'no modifier held' state - a mask key first (so no app reads a
+        lone-Alt menu gesture), then a synthetic Alt-release (so injected
+        text can't become Alt+letter accelerators while the physical key
+        stays down)."""
+        self.suppressing = True
+        try:
+            from pynput.keyboard import Key, KeyCode
+            mask = KeyCode.from_vk(0xE8)     # unassigned VK, no app effect
+            self.kb.press(mask)
+            self.kb.release(mask)
+            self.kb.release(Key.alt)
+        except Exception:
+            log_exc("begin_passive_hold")
+        self.start_recording(time.monotonic())
 
     # --- recording lifecycle -------------------------------------------------
     def start_recording(self, now):
@@ -1154,9 +1199,9 @@ def parse_args():
         prog="carlson",
         description="Hold-to-dictate for the terminal. Local, open source, "
                     "no API keys.")
-    p.add_argument("--hold-key", default="space",
-                   help="key to hold: a single letter/digit or 'space' "
-                        "(default: space)")
+    p.add_argument("--hold-key", default="alt",
+                   help="key to hold: 'alt', 'space', or a single "
+                        "letter/digit (default: alt)")
     p.add_argument("--hold-seconds", type=float, default=1.0)
     p.add_argument("--model", default="base.en",
                    help="final-pass Whisper model (default: base.en; the "
@@ -1202,9 +1247,9 @@ def main():
         print("POLISH :", polish(raw, args.multiline))
         return
     hk = args.hold_key.strip().lower()
-    if hk != "space" and (len(hk) != 1 or not hk.isalnum()):
+    if hk not in ("space", "alt") and (len(hk) != 1 or not hk.isalnum()):
         raise SystemExit(
-            "--hold-key must be a single letter/digit or 'space'")
+            "--hold-key must be 'alt', 'space', or a single letter/digit")
     sys.exit(Carlson(args).run())
 
 

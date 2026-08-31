@@ -7,7 +7,7 @@ or edit the scheduled task's arguments.
 
 | Flag | Default | Description |
 |---|---|---|
-| `--hold-key` | `space` | Trigger key: `space` or a single letter/digit |
+| `--hold-key` | `alt` | Trigger key: `alt`, `space`, or a single letter/digit |
 | `--hold-seconds` | `1.0` | Hold duration before capture engages |
 | `--model` | `base.en` | Finishing model (`small.en` = slower, more accurate) |
 | `--live-model` | `tiny.en` | Streaming model for live insertion |
@@ -40,7 +40,9 @@ always take precedence.
 ## Notes
 
 - The transcript never ends with a newline; nothing is auto-submitted.
-- Typed trigger-key taps are re-injected on key release (~80 ms); extremely
-  fast rollover typing may occasionally reorder a space.
+- With the default `alt` trigger, taps and shortcuts (Alt+Tab, Alt+F4)
+  behave natively; only a solitary one-second hold starts dictation. With a
+  character trigger (`space`, letters), typed taps are re-injected on key
+  release (~80 ms).
 - Elevated (administrator) windows cannot receive synthetic input from an
   unelevated process; this is Windows policy.

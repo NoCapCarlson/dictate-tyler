@@ -4,6 +4,15 @@ All notable changes to Dictate are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 semantic versioning.
 
+## [1.10.0] — 2026-08-31
+### Changed
+- Default trigger moved from `Space` to `Alt`, engineered for a modifier
+  key: nothing is intercepted until the hold threshold, so Alt+Tab,
+  Alt+F4, and every other shortcut work natively (any second key cancels
+  the pending hold). At trigger, the engine takes ownership of the key,
+  masks the lone-Alt menu gesture, and presents a clean no-modifier state
+  so inserted text can never become Alt-accelerators.
+
 ## [1.9.0] — 2026-08-31
 ### Changed
 - English-optimized recognition models (`tiny.en` / `base.en`) are now the
