@@ -8,7 +8,7 @@ On-device voice intelligence for Windows. Hold a key, talk naturally, and
 watch finished prose land exactly where your cursor is — live, as you speak.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2011-0078d4)
-![Version](https://img.shields.io/badge/release-1.8.0-blue)
+![Version](https://img.shields.io/github/v/release/NoCapCarlson/dictate-tyler?label=release&color=blue)
 ![Processing](https://img.shields.io/badge/processing-100%25%20on--device-2ea44f)
 ![Telemetry](https://img.shields.io/badge/telemetry-none-2ea44f)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -35,6 +35,9 @@ never flicker, jump, or rewrite themselves while you're mid-sentence.
 - **Steady at any length.** Committed audio is retired from the analysis
   window, keeping latency constant whether you speak for five seconds or
   five minutes — through pauses, pace changes, and mid-thought silences.
+- **Knows your vocabulary.** A personal dictionary
+  (`~/.config/carlson/vocabulary.txt`) teaches the recognizer your project
+  names, tools, and people.
 - **Editorial finish.** Hesitations ("um", "hmm") never reach the screen.
   Capitalization, spacing, and terminal punctuation are handled. Spoken
   commands — *new line*, *new paragraph* — are honored. Output never ends

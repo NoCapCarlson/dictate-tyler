@@ -9,7 +9,7 @@ or edit the scheduled task's arguments.
 |---|---|---|
 | `--hold-key` | `alt` | Trigger key: `alt`, `space`, or a single letter/digit |
 | `--hold-seconds` | `1.0` | Hold duration before capture engages |
-| `--model` | `base.en` | Finishing model (`small.en` = slower, more accurate) |
+| `--model` | `small.en` | Finishing model (`base.en` = faster, less accurate) |
 | `--live-model` | `tiny.en` | Streaming model for live insertion |
 | `--language` | `en` | Recognition language |
 | `--prompt` | developer vocabulary | Domain bias fed to the recognizer |
@@ -29,6 +29,13 @@ a default set on first run. To replace any cue, place a 16-bit WAV named
 `start_custom.wav`, `done_custom.wav`, `cancel_custom.wav`, or
 `error_custom.wav` in the repository's `assets/` directory — custom files
 always take precedence.
+
+## Personal vocabulary
+
+`~/.config/carlson/vocabulary.txt` holds one name or term per line
+(created with starter entries on first run). Every entry is fed to the
+finishing pass so the recognizer spells your projects, tools, and people
+correctly. Lines starting with `#` are ignored; changes apply on restart.
 
 ## Spoken commands
 

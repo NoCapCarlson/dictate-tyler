@@ -28,9 +28,14 @@ Windows blocks synthetic input into administrator windows from unelevated
 processes. Run your target unelevated, or accept transcription via the
 clipboard (every take is copied there).
 
+**I plugged in a headset / changed microphones.**
+Nothing to do - the audio stream watches its own heartbeat and re-opens
+on the current default device within a few seconds. The dashboard status
+shows "microphone recovered" when it does.
+
 **Recognition quality dips on jargon.**
-Bias the recognizer: `--prompt "your domain vocabulary here"`, or move the
-finishing model up: `--model small`.
+Add your terms to `~/.config/carlson/vocabulary.txt` (picked up on
+restart), or bias a single run with `--prompt`.
 
 **The service didn't start after sign-in.**
 It starts 20 s after logon and retries three times a minute apart. Check

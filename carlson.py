@@ -6,7 +6,7 @@ Hold 5 for one second, speak, release: polished text is pasted at your
 cursor. A quick tap of 5 still types a 5. Esc while recording cancels.
 Local Whisper only - no cloud, no API keys. See META_PROMPT.md.
 """
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 
 import argparse
 import ctypes
@@ -60,6 +60,36 @@ DEFAULT_PROMPT = (
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
+
+# Personal vocabulary: one name/term per line, fed to the finishing pass so
+# your own project names, tools, and people are spelled right.
+VOCAB_PATH = os.path.join(os.path.expanduser("~"), ".config", "carlson",
+                          "vocabulary.txt")
+_VOCAB_STARTER = """# Dictate personal vocabulary - one name or term per line.
+# These are fed to the recognizer so it spells YOUR words correctly.
+# Lines starting with # are ignored. Edit freely; picked up on restart.
+Bink
+Carlson
+Dictate
+Claude Code
+pnpm
+Tyler
+"""
+
+
+def load_vocab():
+    try:
+        if not os.path.exists(VOCAB_PATH):
+            os.makedirs(os.path.dirname(VOCAB_PATH), exist_ok=True)
+            with open(VOCAB_PATH, "w", encoding="utf-8") as f:
+                f.write(_VOCAB_STARTER)
+        with open(VOCAB_PATH, encoding="utf-8") as f:
+            terms = [ln.strip() for ln in f
+                     if ln.strip() and not ln.lstrip().startswith("#")]
+        return terms[:60]
+    except Exception:
+        log_exc("load_vocab")
+        return []
 
 
 def log(msg):
@@ -353,6 +383,7 @@ class Overlay:
         self.t0 = time.monotonic()
         self.root = None
         self._slvl = 0.0            # smoothed voice level for fluid motion
+        self._alpha = 0.0           # fade-in / fade-out
 
     def start(self):
         threading.Thread(target=self._run, daemon=True,
@@ -411,13 +442,25 @@ class Overlay:
             want = (app.state in (RECORDING, POLISHING)
                     or now < app.flash_until)
             if want and not self.visible:
+                self._alpha = 0.0
+                try:
+                    self.root.attributes("-alpha", 0.0)
+                except Exception:
+                    pass
                 self.root.deiconify()
                 self.visible = True
-            elif not want and self.visible:
-                self.root.withdraw()
-                self.visible = False
             if self.visible:
-                self._draw(now)
+                step = 0.3 if want else -0.22
+                self._alpha = min(1.0, max(0.0, self._alpha + step))
+                try:
+                    self.root.attributes("-alpha", self._alpha)
+                except Exception:
+                    pass
+                if not want and self._alpha <= 0.0:
+                    self.root.withdraw()
+                    self.visible = False
+                else:
+                    self._draw(now)
             if app.quit.is_set():
                 self.root.quit()
                 return
@@ -538,12 +581,17 @@ class Carlson:
         self.kb = None                  # pynput Controller, set in run()
         self.injector = None            # live caret typing, set in run()
         self.take_epoch = 0
+        self.stream = None              # sounddevice input stream
+        self._sd = None
+        self.last_audio = 0.0           # heartbeat from the audio callback
+        self.last_mic_retry = 0.0
         self.model_live = None
         self.model_final = None
 
     # --- audio -------------------------------------------------------------
     def _audio_cb(self, indata, frames, tinfo, status):
         import numpy as np
+        self.last_audio = time.monotonic()
         x = indata.copy()
         try:
             self.level = float(np.sqrt(np.mean(np.square(x)))) or 0.0
@@ -609,12 +657,42 @@ class Carlson:
             # (Alt+Tab, Alt+F4...) - stand down, let it work natively
             self.press_time = None
 
+    def _open_stream(self):
+        """(Re)open the microphone stream - also the hot-swap recovery
+        path when a headset is plugged in or the device disappears."""
+        try:
+            if self.stream is not None:
+                try:
+                    self.stream.stop()
+                    self.stream.close()
+                except Exception:
+                    pass
+            s = self._sd.InputStream(samplerate=SR, channels=1,
+                                     dtype="float32", blocksize=BLOCK,
+                                     callback=self._audio_cb)
+            s.start()
+            self.stream = s
+            self.last_audio = time.monotonic()
+            return True
+        except Exception:
+            log_exc("open_stream")
+            return False
+
     # --- watchdog: the only writer of state transitions (Laws L1, L2, L9) ---
     def watch(self):
         while not self.quit.is_set():
             try:
                 down = self.hook_down
                 now = time.monotonic()
+                if (self._sd is not None and now - self.last_audio > 4.0
+                        and now - self.last_mic_retry > 3.0):
+                    # audio heartbeat went quiet: device unplugged/changed
+                    self.last_mic_retry = now
+                    if self._open_stream():
+                        self.status = "microphone recovered"
+                        log("audio stream recovered")
+                    else:
+                        self.status = "microphone lost - retrying"
                 if (self.suppressing and self.listener is not None
                         and not self.listener.running):
                     # hook died: nothing is suppressing anything anymore
@@ -1047,9 +1125,15 @@ class Carlson:
             c.print("[yellow]Live-preview model failed to load; "
                     "final transcription still works.[/]")
 
-        stream = sd.InputStream(samplerate=SR, channels=1, dtype="float32",
-                                blocksize=BLOCK, callback=self._audio_cb)
-        stream.start()
+        vocab = load_vocab()
+        if vocab and self.args.prompt == DEFAULT_PROMPT:
+            self.args.prompt = (DEFAULT_PROMPT + " Key names: "
+                                + ", ".join(vocab) + ".")
+
+        self._sd = sd
+        if not self._open_stream():
+            c.print("[red]Could not open the microphone stream.[/]")
+            return 1
 
         self.listener = pk.Listener(win32_event_filter=self._filter)
         self.listener.start()
@@ -1082,8 +1166,9 @@ class Carlson:
             except Exception:
                 pass
             try:
-                stream.stop()
-                stream.close()
+                if self.stream is not None:
+                    self.stream.stop()
+                    self.stream.close()
             except Exception:
                 pass
         c.print("[dim]Carlson stopped. Your keyboard is untouched.[/]")
@@ -1203,9 +1288,10 @@ def parse_args():
                    help="key to hold: 'alt', 'space', or a single "
                         "letter/digit (default: alt)")
     p.add_argument("--hold-seconds", type=float, default=1.0)
-    p.add_argument("--model", default="base.en",
-                   help="final-pass Whisper model (default: base.en; the "
-                        ".en suffix is dropped for non-English languages)")
+    p.add_argument("--model", default="small.en",
+                   help="final-pass Whisper model (default: small.en - "
+                        "benchmarked best accuracy-per-second on this "
+                        "hardware; .en dropped for non-English languages)")
     p.add_argument("--live-model", default="tiny.en",
                    help="live-preview Whisper model (default: tiny.en)")
     p.add_argument("--language", default="en")

@@ -4,6 +4,21 @@ All notable changes to Dictate are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and versions follow
 semantic versioning.
 
+## [1.11.0] — 2026-08-31
+### Changed
+- Finishing model upgraded to `small.en` after on-device benchmarking
+  (best transcript quality at 5.4x realtime; `distil-small.en` was
+  evaluated and rejected for int8-CPU instability).
+### Added
+- Personal vocabulary: `~/.config/carlson/vocabulary.txt` - one name or
+  term per line, fed to the finishing pass so your projects, tools, and
+  people are spelled correctly. Created with starter entries on first run.
+- Microphone hot-swap recovery: if the input device disappears or changes
+  (headset plugged in, dock removed), the audio stream re-opens itself
+  automatically within seconds.
+- Indicator now fades in and out instead of appearing abruptly.
+- Continuous integration: compile and self-test on every push.
+
 ## [1.10.0] — 2026-08-31
 ### Changed
 - Default trigger moved from `Space` to `Alt`, engineered for a modifier
